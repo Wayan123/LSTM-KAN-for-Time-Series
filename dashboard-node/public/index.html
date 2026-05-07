@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LSTM-KAN Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --line: #d8e0ea;
+        --text: #0f172a;
+        --muted: #64748b;
+        --accent: #2563eb;
+        --accent-2: #0f766e;
+        --danger: #dc2626;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      .shell {
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        min-height: 100vh;
+      }
+      .sidebar {
+        padding: 24px;
+        border-right: 1px solid var(--line);
+        background: var(--panel);
+      }
+      .main {
+        padding: 24px;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 24px;
+      }
+      h2 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+      .field {
+        margin-bottom: 16px;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      input, select, button {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #fff;
+      }
+      button:hover {
+        opacity: 0.95;
+      }
+      .grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-bottom: 16px;
+      }
+      .metric {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+      }
+      .metric .label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .metric .value {
+        font-size: 28px;
+        font-weight: 700;
+        margin-top: 4px;
+      }
+      .section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .status {
+        color: var(--muted);
+        font-size: 13px;
+        min-height: 20px;
+      }
+      .error {
+        color: var(--danger);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      th, td {
+        text-align: left;
+        padding: 8px 6px;
+        border-bottom: 1px solid var(--line);
+      }
+      .chart-wrap {
+        height: 420px;
+      }
+      @media (max-width: 960px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+        .sidebar {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <h1>LSTM-KAN Dashboard</h1>
+        <p class="status" id="connectionStatus">Connecting to API...</p>
+        <div class="field">
+          <label for="apiBase">API base URL</label>
+          <input id="apiBase" value="http://127.0.0.1:8000" />
+        </div>
+        <div class="field">
+          <label for="modelName">Model</label>
+          <select id="modelName">
+            <option>GRU</option>
+            <option>GRUKAN</option>
+            <option>LSTM</option>
+            <option selected>LSTMKAN</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="csvFile">Energy CSV</label>
+          <input id="csvFile" type="file" accept=".csv" />
+        </div>
+        <div class="field">
+          <label for="batchSize">Batch size</label>
+          <input id="batchSize" type="number" min="1" value="1024" />
+        </div>
+        <button id="runBtn">Run prediction</button>
+      </aside>
+      <main class="main">
+        <div class="grid">
+          <div class="metric">
+            <div class="label">MAE</div>
+            <div class="value" id="maeValue">-</div>
+          </div>
+          <div class="metric">
+            <div class="label">RMSE</div>
+            <div class="value" id="rmseValue">-</div>
+          </div>
+          <div class="metric">
+            <div class="label">sMAPE</div>
+            <div class="value" id="smapeValue">-</div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Predicted vs Actual</h2>
+          <div class="chart-wrap">
+            <canvas id="chart"></canvas>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Latest rows</h2>
+          <div id="tableWrap">No data yet.</div>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const connectionStatus = document.getElementById("connectionStatus");
+      const apiBase = document.getElementById("apiBase");
+      const modelName = document.getElementById("modelName");
+      const csvFile = document.getElementById("csvFile");
+      const batchSize = document.getElementById("batchSize");
+      const runBtn = document.getElementById("runBtn");
+      const maeValue = document.getElementById("maeValue");
+      const rmseValue = document.getElementById("rmseValue");
+      const smapeValue = document.getElementById("smapeValue");
+      const tableWrap = document.getElementById("tableWrap");
+      const ctx = document.getElementById("chart");
+      let chart = null;
+
+      function renderTable(rows) {
+        if (!rows.length) {
+          tableWrap.textContent = "No prediction rows returned.";
+          return;
+        }
+        const preview = rows.slice(-20).reverse();
+        const html = [
+          "<table><thead><tr><th>Datetime</th><th>Actual</th><th>Predicted</th><th>Abs Error</th></tr></thead><tbody>",
+          ...preview.map(
+            (row) =>
+              `<tr><td>${row.Datetime}</td><td>${Number(row.actual).toFixed(2)}</td><td>${Number(row.predicted).toFixed(2)}</td><td>${Number(row.abs_error).toFixed(2)}</td></tr>`
+          ),
+          "</tbody></table>",
+        ].join("");
+        tableWrap.innerHTML = html;
+      }
+
+      function renderChart(rows) {
+        const labels = rows.map((row) => row.Datetime);
+        const actual = rows.map((row) => row.actual);
+        const predicted = rows.map((row) => row.predicted);
+
+        if (chart) {
+          chart.destroy();
+        }
+        chart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "Actual",
+                data: actual,
+                borderColor: "#0f766e",
+                pointRadius: 0,
+                tension: 0.2,
+              },
+              {
+                label: "Predicted",
+                data: predicted,
+                borderColor: "#2563eb",
+                pointRadius: 0,
+                tension: 0.2,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+          },
+        });
+      }
+
+      async function checkApi() {
+        try {
+          const response = await fetch(`${apiBase.value}/health`);
+          const data = await response.json();
+          connectionStatus.textContent = `API status: ${data.status}`;
+          connectionStatus.classList.remove("error");
+        } catch (error) {
+          connectionStatus.textContent = "API status: unreachable";
+          connectionStatus.classList.add("error");
+        }
+      }
+
+      runBtn.addEventListener("click", async () => {
+        if (!csvFile.files.length) {
+          alert("Choose a CSV file first.");
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append("file", csvFile.files[0]);
+
+        runBtn.disabled = true;
+        runBtn.textContent = "Running...";
+        try {
+          const response = await fetch(
+            `${apiBase.value}/predict/file?model_name=${encodeURIComponent(modelName.value)}&batch_size=${encodeURIComponent(batchSize.value)}`,
+            {
+              method: "POST",
+              body: formData,
+            }
+          );
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || "Prediction failed");
+          }
+          const payload = await response.json();
+          maeValue.textContent = Number(payload.metrics.mae).toFixed(3);
+          rmseValue.textContent = Number(payload.metrics.rmse).toFixed(3);
+          smapeValue.textContent = `${Number(payload.metrics.smape).toFixed(3)}%`;
+          renderChart(payload.rows);
+          renderTable(payload.rows);
+        } catch (error) {
+          alert(error.message);
+        } finally {
+          runBtn.disabled = false;
+          runBtn.textContent = "Run prediction";
+        }
+      });
+
+      checkApi();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+numpy>=1.24
+pandas>=2.0
+torch>=2.1
+matplotlib>=3.7
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+streamlit>=1.32
+pytest>=8.0
